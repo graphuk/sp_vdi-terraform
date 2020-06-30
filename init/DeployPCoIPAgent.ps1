@@ -1,24 +1,9 @@
-# Copyright (c) 2018 Teradici Corporation
+# Copyright (c) 2019 Teradici Corporation
 #
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
+# Make sure this file has Windows line endings
 <#
     .SYNOPSIS
         Configure Windows 10 Workstation with Teradici PCoIP.
@@ -31,6 +16,18 @@
 
 [CmdletBinding(DefaultParameterSetName = "_AllParameterSets")]
 param(
+
+    [Parameter(Mandatory=$false)]
+    [string]
+    $storage_account,
+
+    [Parameter(Mandatory=$false)]
+    [string]
+    $storage_container,
+
+    [Parameter(Mandatory=$false)]
+    [string]
+    $storage_access_key,
 
     [Parameter(Mandatory=$true)]
     [string]
@@ -101,6 +98,24 @@ Write-Output "ad_service_account_password: $ad_service_account_password"
 #Disable Scheulded Tasks: ServerManager
 Get-ScheduledTask -TaskName ServerManager | Disable-ScheduledTask -Verbose
 
+Function Mount-Disk
+(
+  [string]$storage_name,
+  [string]$container,
+  [string]$storage_password
+)
+{
+  $connectTestResult = Test-NetConnection -ComputerName "$storage_name.file.core.windows.net" -Port 445
+  if ($connectTestResult.TcpTestSucceeded) {
+    # Save the password so the drive will persist on reboot
+    cmd.exe /C "cmdkey /add:$storage_name.file.core.windows.net /user:Azure\$storage_name /pass:$storage_password"
+    # Mount the drive
+    New-PSDrive -Name Z -PSProvider FileSystem -Root "\\$storage_name.file.core.windows.net\$container" -Scope Global -Persist
+  } else {
+    Write-Error -Message "Unable to reach the Azure storage account via port 445. Check to make sure your organization or ISP is not blocking port 445, or use Azure P2S VPN, Azure S2S VPN, or Express Route to tunnel SMB traffic over a different port."
+  }
+}
+
 Function Get-AccessToken
 (
   [string]$application_id,
@@ -127,15 +142,15 @@ Function Get-Secret
 )
 {
   $oath2Uri = "https://login.microsoftonline.com/$tenant_id/oauth2/token"
-  
+
   $accessToken = Get-AccessToken $application_id $aad_client_secret $oath2Uri
 
-  $queryUrl = "$secret_identifier" + '?api-version=7.0'       
-  
+  $queryUrl = "$secret_identifier" + '?api-version=7.0'
+
   $headers = @{ 'Authorization' = "Bearer $accessToken"; "Content-Type" = "application/json" }
 
   $response = Invoke-RestMethod -Method GET -Ur $queryUrl -Headers $headers
-  
+
   $result = $response.value
 
   return $result
@@ -228,7 +243,17 @@ function DownloadFileOverHttp($Url, $DestinationPath) {
 }
 
 try {
-    
+    #Change empty disk letter to Y
+    Get-Partition -DriveLetter E | Set-Partition -NewDriveLetter Y
+    Write-Output "Disk E is renamed to Y"
+
+    #Join Domain Controller
+    Write-Output "Joining Domain"
+    Join-Domain $domain_name $ad_service_account_username $ad_service_account_password
+
+    #Mount file sharing storage container
+    Mount-Disk $storage_account $storage_container $storage_access_key
+
     #Decrypt Teradici Reg Key and AD Service Account Password
     if (!($application_id -eq $null -or $application_id -eq "") -and !($aad_client_secret -eq $null -or $aad_client_secret -eq "") -and !($tenant_id -eq $null -or $tenant_id -eq "")) {
     Write-Output "Running Get-Secret!"
@@ -236,11 +261,6 @@ try {
     $ad_service_account_password = Get-Secret $application_id $aad_client_secret $tenant_id $ad_pass_secret_id
     }
 
-    #Join Domain Controller
-    Write-Output "Joining Domain"
-    Join-Domain $domain_name $ad_service_account_username $ad_service_account_password
-
-    
     #Set the Agent's destination 
     If(!(test-path $AgentDestinationPath))  {
         New-Item -ItemType Directory -Force -Path $AgentDestinationPath

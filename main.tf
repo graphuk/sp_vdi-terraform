@@ -332,7 +332,6 @@ module "active-directory-domain" {
   ad_admin_password             = var.ad_admin_password
   dc_machine_type               = var.dc_machine_type
   nic_id                        = azurerm_network_interface.dc_nic.id
-  domain_users_list             = var.domain_users_list
   ad_pass_secret_name           = var.ad_pass_secret_name
   key_vault_id                  = var.key_vault_id
   application_id                = var.application_id
@@ -414,6 +413,7 @@ module "persona-1" {
   _artifactsLocation          = var._artifactsLocation
   _artifactsLocationSasToken  = var._artifactsLocationSasToken
   tags                        = local.common_tags
+  vm_depends_on               = module.active-directory-domain.domain_users_created
 }
 
 module "persona-2" {
@@ -450,6 +450,7 @@ module "persona-2" {
   _artifactsLocation          = var._artifactsLocation
   _artifactsLocationSasToken  = var._artifactsLocationSasToken
   tags                        = local.common_tags
+  vm_depends_on               = module.active-directory-domain.domain_users_created
 }
 
 module "persona-3" {
@@ -486,4 +487,5 @@ module "persona-3" {
   _artifactsLocation          = var._artifactsLocation
   _artifactsLocationSasToken  = var._artifactsLocationSasToken
   tags                        = local.common_tags
+  vm_depends_on               = module.active-directory-domain.domain_users_created
 }

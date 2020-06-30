@@ -7,6 +7,30 @@
 # Script downloaded from https://activedirectorypro.com/create-bulk-users-active-directory/
 # on 2019.03.22. Modified for Teradici use.
 #
+Function Create-OU
+(
+    [string]$name
+)
+{
+    Write-Output "================================================================"
+    Write-Output "Creating OU: $name"
+    Write-Output "================================================================"
+
+    try
+    {
+        Get-ADOrganizationalUnit -Identity "OU=$name,DC=tera,DC=dns,DC=internal"
+    }
+    catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] 
+    {
+        New-ADOrganizationalUnit -Name $name -Path "DC=tera,DC=dns,DC=internal"
+    }
+}
+
+Create-OU "Productions users"
+Create-OU "Workstations"
+
+Start-Sleep -s 30
+
 Write-Output "================================================================"
 Write-Output "Creating new AD Domain Users from CSV file..."
 Write-Output "================================================================"
@@ -43,6 +67,7 @@ foreach ($User in $ADUsers)
             -GivenName $Firstname `
             -Surname $Lastname `
             -Enabled $True `
+            -Path "OU=Production Users,DC=tera,DC=dns,DC=internal"`
             -DisplayName "$Lastname, $Firstname" `
             -AccountPassword (convertto-securestring $Password -AsPlainText -Force) -ChangePasswordAtLogon $False
 
